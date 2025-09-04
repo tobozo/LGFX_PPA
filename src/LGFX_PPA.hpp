@@ -56,9 +56,9 @@
     // debug tags for all ppa utils
     static constexpr const char* PPA_SPRITE_TAG = "PPA_Sprite";
     static constexpr const char* PPA_TAG        = "PPABase";
-    static constexpr const char* SRM_TAG        = "PPA_SRM";
-    static constexpr const char* BLEND_TAG      = "PPA_BLEND";
-    static constexpr const char* FILL_TAG       = "PPA_FILL";
+    static constexpr const char* SRM_TAG        = "PPASrm";
+    static constexpr const char* BLEND_TAG      = "PPABlend";
+    static constexpr const char* FILL_TAG       = "PPAFill";
 
     class PPA_Sprite;
     class PPABase;
@@ -153,8 +153,53 @@
       return PPA_SRM_COLOR_MODE_RGB565;
     }
 
-    // ---------------------------------------------------------------------------------------------
 
+    ppa_srm_rotation_angle_t ppa_srm_get_rotation_from_angle(float angle)
+    {
+      int rotation = fmod(angle, 360.0) / 90; // only 4 angles supported
+      switch(rotation)
+      {
+        case 0: return PPA_SRM_ROTATION_ANGLE_0;
+        case 1: return PPA_SRM_ROTATION_ANGLE_90;
+        case 2: return PPA_SRM_ROTATION_ANGLE_180;
+        case 3: return PPA_SRM_ROTATION_ANGLE_270;
+      }
+      return PPA_SRM_ROTATION_ANGLE_0;
+    }
+
+
+    float ppa_srm_get_angle_from_rotation(ppa_srm_rotation_angle_t rotation)
+    {
+      switch(rotation)
+      {
+        case PPA_SRM_ROTATION_ANGLE_0  : return 0  ;
+        case PPA_SRM_ROTATION_ANGLE_90 : return 90 ;
+        case PPA_SRM_ROTATION_ANGLE_180: return 180;
+        case PPA_SRM_ROTATION_ANGLE_270: return 270;
+      }
+      return 0;
+    }
+
+
+    template<typename T>
+    color_pixel_rgb888_data_t ppa_color_convert_rgb888(T c)
+    {
+      rgb888_t ct = c;
+      return {.b=ct.B8(), .g=ct.G8(), .r=ct.R8() };
+    }
+
+    template<typename T>
+    color_pixel_argb8888_data_t ppa_color_convert_argb8888(T c)
+    {
+      argb8888_t ct = c;
+      return {.b=ct.B8(), .g=ct.G8(), .r=ct.R8(), .a=ct.A8() };
+    }
+
+
+    struct clipRect_t { int32_t x; int32_t y; int32_t w; int32_t h; };
+
+
+    // ---------------------------------------------------------------------------------------------
 
 
     // Same as LGFX_Sprite but with aligned memory for ppa operations, and restricted to 16 bits colors
@@ -179,8 +224,8 @@
         uint8_t bit_depth  = getColorDepth();
         uint8_t byte_depth = bit_depth/8;
 
-        if(byte_depth<2) {
-          ESP_LOGE(PPA_SPRITE_TAG, "only supports 16bits colors and more");
+        if(byte_depth<2 || byte_depth>4) {
+          ESP_LOGE(PPA_SPRITE_TAG, "Only 16/24/32 bits colors are supported");
           return nullptr;
         }
 
@@ -282,18 +327,9 @@
           return;
         }
 
-        if( std::is_same<GFX, GFX_BASE>::value ) {
-          output_buffer = ((Panel_DSI*)outputGFX->getPanel())->config_detail().buffer;
-          output_bytes_per_pixel = 2; // panelDSI->getColorDepth() returns a weird value, so 16bits colors it is...
-        } else if( std::is_same<GFX, LGFX_Sprite>::value || std::is_same<GFX, PPA_Sprite>::value  ) {
-          if( outputGFX->getColorDepth() < 16 ) {
-            ESP_LOGE(SRM_TAG, "Unsupported bit depth: %d", outputGFX->getColorDepth() );
-            return;
-          }
-          output_bytes_per_pixel = out->getColorDepth()/8;
-          output_buffer = ((LGFX_Sprite*)outputGFX)->getBuffer();
-        } else {
-          ESP_LOGE(SRM_TAG, "Unsupported GFX type: %s, accepted types are: LovyanGFX*, M5GFX*, LGFX_Sprite*, PPA_Sprite*", TYPE_NAME<GFX>() );
+
+        ppa_out_pic_blk_config_t out_cfg;
+        if( ! ppa_cfg_block_out(&out_cfg, out) ) {
           return;
         }
 
@@ -368,6 +404,108 @@
 
         return true;
       }
+
+
+      template <typename GFX>
+      bool ppa_cfg_block_in(ppa_in_pic_blk_config_t* cfg, GFX* gfx)
+      {
+        void *buf;
+        uint8_t bitDepth = 16;
+
+        if( std::is_same<GFX, GFX_BASE>::value ) {
+          buf = ((Panel_DSI*)outputGFX->getPanel())->config_detail().buffer; // assuming 16bpp
+        } else if( std::is_same<GFX, LGFX_Sprite>::value || std::is_same<GFX, PPA_Sprite>::value  ) {
+          buf = ((LGFX_Sprite*)gfx)->getBuffer();
+          bitDepth = ((LGFX_Sprite*)gfx)->getColorDepth();
+          if( bitDepth < 16 ) {
+            ESP_LOGE(PPA_TAG, "Unsupported input bit depth: %d", bitDepth );
+            return false;
+          }
+        } else {
+          ESP_LOGE(PPA_TAG, "Unsupported gfx type: %s", TYPE_NAME<GFX>() );
+          return false;
+        }
+
+        clipRect_t clipRect = {0,0,0,0};
+
+        gfx->getClipRect(&clipRect.x, &clipRect.y, &clipRect.w, &clipRect.h);
+
+        return ppa_cfg_block_in(cfg, buf, gfx->width(), gfx->height(), clipRect, bitDepth);
+      }
+
+      bool ppa_cfg_block_in(ppa_in_pic_blk_config_t* cfg, void*buffer, uint32_t w, uint32_t h, clipRect_t clipRect, uint8_t bitDepth)
+      {
+        if( !cfg || !buffer ) // malformed call
+          return false;
+        if( clipRect.x+clipRect.w>w || clipRect.y+clipRect.h>h || clipRect.w<=0 || clipRect.h<=0 || clipRect.x<0 || clipRect.y<0) {
+          ESP_LOGE(PPA_TAG, "ClipRect {%d, %d, %d, %d} is outside boundaries", clipRect.x, clipRect.y, clipRect.w, clipRect.h);
+          return false; // clipRect must fit in buffer area
+        }
+
+        *cfg = {
+          .buffer         = buffer,
+          .pic_w          = w,
+          .pic_h          = h,
+          .block_w        = (uint32_t)clipRect.w,
+          .block_h        = (uint32_t)clipRect.h,
+          .block_offset_x = (uint32_t)clipRect.x,
+          .block_offset_y = (uint32_t)clipRect.y,
+          .blend_cm       = ppa_blend_color_mode(bitDepth),
+          .yuv_range      = ppa_color_range_t(),
+          .yuv_std        = ppa_color_conv_std_rgb_yuv_t()
+        };
+        return true;
+      }
+
+
+      template <typename GFX>
+      bool ppa_cfg_block_out(ppa_out_pic_blk_config_t *cfg, GFX* gfx)
+      {
+        if( std::is_same<GFX, GFX_BASE>::value ) {
+          output_buffer = ((Panel_DSI*)outputGFX->getPanel())->config_detail().buffer;
+          output_bytes_per_pixel = 2; // panelDSI->getColorDepth() returns a weird value, so 16bits colors it is...
+        } else if( std::is_same<GFX, LGFX_Sprite>::value || std::is_same<GFX, PPA_Sprite>::value  ) {
+          if( outputGFX->getColorDepth() < 16 ) {
+            ESP_LOGE(PPA_TAG, "Unsupported bit depth: %d", outputGFX->getColorDepth() );
+            return false;
+          }
+          output_bytes_per_pixel = gfx->getColorDepth()/8;
+          output_buffer = ((LGFX_Sprite*)outputGFX)->getBuffer();
+        } else {
+          ESP_LOGE(PPA_TAG, "Unsupported GFX type: %s, accepted types are: LovyanGFX*, M5GFX*, LGFX_Sprite*, PPA_Sprite*", TYPE_NAME<GFX>() );
+          return false;
+        }
+
+        clipRect_t clipRect = {0,0,0,0};
+
+        gfx->getClipRect(&clipRect.x, &clipRect.y, &clipRect.w, &clipRect.h);
+
+        return ppa_cfg_block_out(cfg, output_buffer, clipRect.w*clipRect.h*output_bytes_per_pixel, clipRect, output_bytes_per_pixel*8 );
+      }
+
+      bool ppa_cfg_block_out(ppa_out_pic_blk_config_t *cfg, void*buffer, uint32_t buffer_size, clipRect_t clipRect, uint8_t bitDepth)
+      {
+        if( !cfg || !buffer ) // malformed call
+          return false;
+        if( clipRect.w<=0 || clipRect.h<=0 || clipRect.x<0 || clipRect.y<0 || clipRect.x>clipRect.w-1 || clipRect.y>clipRect.h-1 )
+          return false;
+
+        *cfg =
+        {
+          .buffer         = buffer,
+          .buffer_size    = buffer_size,
+          .pic_w          = (uint32_t)clipRect.w,
+          .pic_h          = (uint32_t)clipRect.h,
+          .block_offset_x = (uint32_t)clipRect.x,
+          .block_offset_y = (uint32_t)clipRect.y,
+          .blend_cm       = ppa_blend_color_mode(bitDepth),
+          .yuv_range      = ppa_color_range_t(),
+          .yuv_std        = ppa_color_conv_std_rgb_yuv_t()
+        };
+        return true;
+      }
+
+
     };
 
 
@@ -416,6 +554,9 @@
 
     public:
 
+      ppa_fill_oper_config_t config() { return oper_config; }
+      void config(ppa_fill_oper_config_t cfg) { oper_config=cfg; }
+
       template <typename GFX>
       PPAFill(GFX* out, bool async = false, bool use_semaphore = false)
       : PPABase(out, PPA_OPERATION_FILL, async, use_semaphore)
@@ -424,36 +565,20 @@
       template <typename T>
       bool fillRect( uint32_t x, uint32_t y, uint32_t w, uint32_t h, const T& color )
       {
-        color_pixel_argb8888_data_t fill_argb_color;
+        if(!inited)
+          return false;
 
-        lgfx::argb8888_t argb8888;
-        if( std::is_same<lgfx::argb8888_t, T>::value ) {
-          argb8888 = (lgfx::argb8888_t)color;
-        } else {
-          lgfx::rgb888_t rgb888 = lgfx::color_convert<lgfx::rgb888_t, T>((uint32_t)color);
-          argb8888.a = 0xff;
-          argb8888.r = rgb888.r;
-          argb8888.g = rgb888.g;
-          argb8888.b = rgb888.b;
-        }
-
-        fill_argb_color.val = argb8888.raw;
+        uint32_t output_buffer_size = LGFX_PPA_ALIGN_UP(output_w*output_h*output_bytes_per_pixel, CONFIG_CACHE_L1_CACHE_LINE_SIZE);
+        clipRect_t outClipRect = { (int32_t)x, (int32_t)y, (int32_t)output_w, (int32_t)output_h };
+        ppa_out_pic_blk_config_t out_cfg;
+        if( !ppa_cfg_block_out(&out_cfg, output_buffer, output_buffer_size, outClipRect, output_bytes_per_pixel*8) )
+          return false;
 
         oper_config = {
-          .out = {
-            .buffer         = output_buffer,
-            .buffer_size    = LGFX_PPA_ALIGN_UP(output_w*output_h*output_bytes_per_pixel, CONFIG_CACHE_L1_CACHE_LINE_SIZE),
-            .pic_w          = output_w,
-            .pic_h          = output_h,
-            .block_offset_x = x,
-            .block_offset_y = y,
-            .fill_cm        = ppa_fill_color_mode( output_bytes_per_pixel*8 ), //  PPA_FILL_COLOR_MODE_RGB565,
-            .yuv_range      = ppa_color_range_t(),
-            .yuv_std        = ppa_color_conv_std_rgb_yuv_t()
-          },
+          .out             = out_cfg,
           .fill_block_w    = w,
           .fill_block_h    = h,
-          .fill_argb_color = fill_argb_color,
+          .fill_argb_color = ppa_color_convert_argb8888(color),
           .mode            = async ? PPA_TRANS_MODE_NON_BLOCKING : PPA_TRANS_MODE_BLOCKING,
           .user_data       = (void*)this,
         };
@@ -468,7 +593,6 @@
     // ---------------------------------------------------------------------------------------------
 
 
-
     class PPABlend : public PPABase
     {
     private:
@@ -476,22 +600,54 @@
 
     public:
 
+      ppa_blend_oper_config_t config() { return oper_config; }
+      void config(ppa_blend_oper_config_t cfg) { oper_config=cfg; }
+
       template <typename GFX>
       PPABlend(GFX* out, bool async = true, bool use_semaphore = false)
       : PPABase(out, PPA_OPERATION_BLEND, async, use_semaphore)
-      { enabled = true; }
+      {
+        enabled = true;
+        oper_config.fg_rgb_swap      = false;
+        oper_config.bg_rgb_swap      = false;
+        oper_config.ck_reverse_bg2fg = false;
+      }
 
 
+      // blend with single color
+      template <typename FG, typename BG, typename FGTransColor>
+      bool pushImageBlend( FG* fg, BG* bg, FGTransColor fgtrans)
+      {
+        return pushImageBlend_impl(fg, bg, true, fgtrans,fgtrans,0xff, false,(FGTransColor)0,(FGTransColor)0,0xff);
+      }
 
-      template <typename FG, typename BG, typename T>
-      bool pushImageBlend(
+      // blend with two colors
+      template <typename FG, typename BG, typename FGTransColor, typename BGTransColor>
+      bool pushImageBlend( FG* fg, FGTransColor fgtrans, BG* bg, BGTransColor bgtrans)
+      {
+        return pushImageBlend_impl(fg, bg, true, fgtrans,fgtrans,0xff, true, bgtrans,bgtrans,0xff);
+      }
+
+      // blend with transparency
+      template <typename FG, typename BG>
+      bool pushImageBlendAlpha( FG* fg, float fg_alpha_float_val, BG* bg, float bg_alpha_float_val)
+      {
+        uint8_t fg_alpha_fix_val = fg_alpha_float_val *0xff;
+        uint8_t bg_alpha_fix_val = bg_alpha_float_val *0xff;
+        return pushImageBlend_impl(fg, bg, false, 0u, 0u, fg_alpha_fix_val, false, 0u, 0u, bg_alpha_fix_val);
+      }
+
+    protected:
+
+      template <typename FG, typename BG>
+      bool pushImageBlend_impl(
         FG* fg, BG* bg,
-        bool fg_ck_en=false, T fg_ck_col_low=0, T fg_ck_col_hi=0, uint8_t fg_alpha_fix_val=0xff,
-        bool bg_ck_en=false, T bg_ck_col_low=0, T bg_ck_col_hi=0, uint8_t bg_alpha_fix_val=0xff,
-        T fg_fix_col=0, T ck_default_col=0
+        bool fg_ck_en=false, uint32_t fg_ck_col_low=0, uint32_t fg_ck_col_hi=0, uint8_t fg_alpha_fix_val=0xff,
+        bool bg_ck_en=false, uint32_t bg_ck_col_low=0, uint32_t bg_ck_col_hi=0, uint8_t bg_alpha_fix_val=0xff,
+        uint32_t fg_fix_col=0, uint32_t ck_default_col=0
       ) {
-        assert(fg);
-        assert(bg);
+        if( !fg || !bg )
+          return false;
 
         if(!inited) {
           ESP_LOGE(BLEND_TAG, "Can't push after a failed init");
@@ -503,201 +659,62 @@
           return false;
         }
 
-        color_pixel_rgb888_data_t bg_ck_rgb_low_thres  = (color_pixel_rgb888_data_t){};
-        color_pixel_rgb888_data_t bg_ck_rgb_high_thres = (color_pixel_rgb888_data_t){};
-
-        color_pixel_rgb888_data_t fg_ck_rgb_low_thres  = (color_pixel_rgb888_data_t){};
-        color_pixel_rgb888_data_t fg_ck_rgb_high_thres = (color_pixel_rgb888_data_t){};
-
-        color_pixel_rgb888_data_t fg_fix_rgb_val       = (color_pixel_rgb888_data_t){};
-        color_pixel_rgb888_data_t ck_rgb_default_val   = (color_pixel_rgb888_data_t){};
-
-        lgfx::rgb888_t srcColors[] = {
-          bg_ck_col_low,        bg_ck_col_hi,          fg_ck_col_low,        fg_ck_col_hi,          fg_fix_col,      ck_default_col
-        };
-        color_pixel_rgb888_data_t* dstColors[] = {
-          &bg_ck_rgb_low_thres, &bg_ck_rgb_high_thres, &fg_ck_rgb_low_thres, &fg_ck_rgb_high_thres, &fg_fix_rgb_val, &ck_rgb_default_val
-        };
-
-        size_t colorsize = sizeof(srcColors)/sizeof(lgfx::rgb888_t);
-        for(int i=0;i<colorsize;i++) {
-          dstColors[i]->r = srcColors[i].R8();
-          dstColors[i]->g = srcColors[i].G8();
-          dstColors[i]->b = srcColors[i].B8();
-        }
-
-        void *fg_buf;
-
-        if( std::is_same<FG, GFX_BASE>::value ) {
-          fg_buf = ((Panel_DSI*)outputGFX->getPanel())->config_detail().buffer; // assuming 16bpp
-        } else if( std::is_same<FG, LGFX_Sprite>::value || std::is_same<FG, PPA_Sprite>::value  ) {
-          fg_buf = ((LGFX_Sprite*)fg)->getBuffer();
-          if( ((LGFX_Sprite*)fg)->getColorDepth() < 16 ) {
-            ESP_LOGE(BLEND_TAG, "Unsupported fg input bit depth: %d", ((LGFX_Sprite*)fg)->getColorDepth() );
-            return false;
-          }
-        } else {
-          ESP_LOGE(BLEND_TAG, "Unsupported fg type: %s", TYPE_NAME<FG>() );
-          return false;
-        }
-
-        void *bg_buf;
-
-        if( std::is_same<BG, GFX_BASE>::value ) {
-          bg_buf = ((Panel_DSI*)outputGFX->getPanel())->config_detail().buffer; // assuming 16bpp
-        } else if( std::is_same<BG, LGFX_Sprite>::value || std::is_same<BG, PPA_Sprite>::value  ) {
-          bg_buf = ((LGFX_Sprite*)bg)->getBuffer();
-          if( ((LGFX_Sprite*)bg)->getColorDepth() < 16 ) {
-            ESP_LOGE(BLEND_TAG, "Unsupported bg input bit depth: %d", ((LGFX_Sprite*)bg)->getColorDepth() );
-            return false;
-          }
-        } else {
-          ESP_LOGE(BLEND_TAG, "Unsupported bg type: %s", TYPE_NAME<BG>() );
-          return false;
-        }
-
-        if(!fg_buf || !bg_buf || !output_buffer) {
-          ESP_LOGE(BLEND_TAG, "At least one of fg/bg buffers is missing");
-          return false;
-        }
-
-        // w/h for FG and BG should be identical and will be used as the w/h for the output block.
         if( fg->width() != output_w || fg->height() != output_h || bg->width() != output_w || bg->height() != output_h ) {
           ESP_LOGE(BLEND_TAG, "fg/bg Dimensions don't match!");
+          return false; // FG and BG size must match the output block size
+        }
+
+        ppa_in_pic_blk_config_t in_bg;
+        if( !ppa_cfg_block_in(&in_bg, bg) )
           return false;
-        }
 
-
-        uint32_t bg_block_offset_x, bg_block_offset_y, bg_block_w, bg_block_h;
-        {
-          int32_t left, top, width, height;
-          fg->getClipRect(&left, &top, &width, &height);
-          if( left+width>bg->width() || top+height>bg->height() || width<=0 || height<=0) {
-            ESP_LOGE(BLEND_TAG, "bg ClipRect {%d, %d, %d, %d} is outside boundaries", left, top, width, height);
-            return false;
-          }
-          bg_block_w = width;
-          bg_block_h = height;
-          bg_block_offset_x = left;
-          bg_block_offset_y = top;
-        }
-
-        uint32_t fg_block_offset_x, fg_block_offset_y, fg_block_w, fg_block_h;
-        {
-          int32_t left, top, width, height;
-          fg->getClipRect(&left, &top, &width, &height);
-          if( left+width>fg->width() || top+height>fg->height() || width<=0 || height<=0) {
-            ESP_LOGE(BLEND_TAG, "fg ClipRect {%d, %d, %d, %d} is outside boundaries", left, top, width, height);
-            return false;
-          }
-          fg_block_w = width;
-          fg_block_h = height;
-          fg_block_offset_x = left;
-          fg_block_offset_y = top;
-        }
-
-        // The blocks' width/height of FG and BG should be identical, and are the width/height values for the output block.
-        if( bg_block_w!=fg_block_w || bg_block_h!=fg_block_h || bg_block_offset_x!=fg_block_offset_x || bg_block_offset_y!=fg_block_offset_y ) {
-          ESP_LOGE(BLEND_TAG, "fg/bg ClipRects don't match!");
+        ppa_in_pic_blk_config_t in_fg;
+        if( !ppa_cfg_block_in(&in_fg, fg) )
           return false;
-        }
 
+        uint32_t output_buffer_size = LGFX_PPA_ALIGN_UP(output_w*output_h*output_bytes_per_pixel, CONFIG_CACHE_L1_CACHE_LINE_SIZE);
+        clipRect_t outClipRect = { (int32_t)in_bg.block_offset_x, (int32_t)in_bg.block_offset_y, (int32_t)output_w, (int32_t)output_h };
+        ppa_out_pic_blk_config_t out_cfg;
+        if( !ppa_cfg_block_out(&out_cfg, output_buffer, output_buffer_size, outClipRect, output_bytes_per_pixel*8) )
+          return false;
 
         oper_config =
         {
-          .in_bg =
-          {
-            .buffer         = bg_buf,
-            .pic_w          = output_w,
-            .pic_h          = output_h,
-            .block_w        = bg_block_w,
-            .block_h        = bg_block_h,
-            .block_offset_x = bg_block_offset_x,
-            .block_offset_y = bg_block_offset_y,
-            .blend_cm       = ppa_blend_color_mode( bg->getColorDepth() ), // PPA_BLEND_COLOR_MODE_RGB565,
-            .yuv_range      = ppa_color_range_t(),
-            .yuv_std        = ppa_color_conv_std_rgb_yuv_t()
-          },
-          .in_fg =
-          {
-            .buffer         = fg_buf,
-            .pic_w          = output_w,
-            .pic_h          = output_h,
-            .block_w        = fg_block_w,
-            .block_h        = fg_block_h,
-            .block_offset_x = fg_block_offset_x,
-            .block_offset_y = fg_block_offset_y,
-            .blend_cm       = ppa_blend_color_mode( fg->getColorDepth() ), // PPA_BLEND_COLOR_MODE_RGB565,
-            .yuv_range      = ppa_color_range_t(),
-            .yuv_std        = ppa_color_conv_std_rgb_yuv_t()
-          },
-          .out =
-          {
-            .buffer         = output_buffer,
-            .buffer_size    = LGFX_PPA_ALIGN_UP(output_w*output_h*output_bytes_per_pixel, CONFIG_CACHE_L1_CACHE_LINE_SIZE),
-            .pic_w          = output_w,
-            .pic_h          = output_h,
-            .block_offset_x = bg_block_offset_x,
-            .block_offset_y = bg_block_offset_y,
-            .blend_cm       = ppa_blend_color_mode( output_bytes_per_pixel*8 ), // PPA_BLEND_COLOR_MODE_RGB565,
-            .yuv_range      = ppa_color_range_t(),
-            .yuv_std        = ppa_color_conv_std_rgb_yuv_t()
-          },
+          .in_bg                = in_bg,
+          .in_fg                = in_fg,
+          .out                  = out_cfg,
 
-          .bg_rgb_swap          = false,
-          .bg_byte_swap         = fg->getSwapBytes(),
+          .bg_rgb_swap          = oper_config.bg_rgb_swap,
+          .bg_byte_swap         = bg->getSwapBytes(),
           .bg_alpha_update_mode = PPA_ALPHA_FIX_VALUE,
           .bg_alpha_fix_val     = bg_alpha_fix_val,
 
-          .fg_rgb_swap          = false,
-          .fg_byte_swap         = bg->getSwapBytes(),
+          .fg_rgb_swap          = oper_config.fg_rgb_swap,
+          .fg_byte_swap         = fg->getSwapBytes(),
           .fg_alpha_update_mode = PPA_ALPHA_FIX_VALUE,
           .fg_alpha_fix_val     = fg_alpha_fix_val,
-          .fg_fix_rgb_val       = fg_fix_rgb_val,
+          .fg_fix_rgb_val       = ppa_color_convert_rgb888(fg_fix_col),
 
           .bg_ck_en             = bg_ck_en,
-          .bg_ck_rgb_low_thres  = bg_ck_rgb_low_thres,
-          .bg_ck_rgb_high_thres = bg_ck_rgb_high_thres,
+          .bg_ck_rgb_low_thres  = ppa_color_convert_rgb888(bg_ck_col_low),
+          .bg_ck_rgb_high_thres = ppa_color_convert_rgb888(bg_ck_col_hi),
 
-          .fg_ck_en             = fg_ck_en, // true
-          .fg_ck_rgb_low_thres  = fg_ck_rgb_low_thres,
-          .fg_ck_rgb_high_thres = fg_ck_rgb_high_thres,
+          .fg_ck_en             = fg_ck_en,
+          .fg_ck_rgb_low_thres  = ppa_color_convert_rgb888(fg_ck_col_low),
+          .fg_ck_rgb_high_thres = ppa_color_convert_rgb888(fg_ck_col_hi),
 
-          .ck_rgb_default_val   = ck_rgb_default_val,
-          .ck_reverse_bg2fg     = false,
+          .ck_rgb_default_val   = ppa_color_convert_rgb888(ck_default_col),
+          .ck_reverse_bg2fg     = oper_config.ck_reverse_bg2fg,
 
           .mode                 = async ? PPA_TRANS_MODE_NON_BLOCKING : PPA_TRANS_MODE_BLOCKING,
-          .user_data            = (void*)this // attach semaphore
+          .user_data            = (void*)this
         };
 
         return PPABase::exec(&oper_config);
       }
 
 
-      template <typename FG, typename BG, typename FGTransColor>
-      bool pushImageBlend( FG* fg, BG* bg, FGTransColor fgtrans)
-      {
-        return pushImageBlend(fg, bg, true, fgtrans,fgtrans,0xff, false,(FGTransColor)0,(FGTransColor)0,0xff);
-      }
-
-
-      template <typename FG, typename BG, typename FGTransColor, typename BGTransColor>
-      bool pushImageBlend( FG* fg, FGTransColor fgtrans, BG* bg, BGTransColor bgtrans)
-      {
-        return pushImageBlend(fg, bg, true, fgtrans,fgtrans,0xff, true, bgtrans,bgtrans,0xff);
-      }
-
-
-      template <typename FG, typename BG>
-      bool pushImageBlendAlpha( FG* fg, float fg_alpha_float_val, BG* bg, float bg_alpha_float_val)
-      {
-        uint8_t fg_alpha_fix_val = fg_alpha_float_val *0xff;
-        uint8_t bg_alpha_fix_val = bg_alpha_float_val *0xff;
-        return pushImageBlend(fg, bg, false, 0u, 0u, fg_alpha_fix_val, false, 0u, 0u, bg_alpha_fix_val);
-      }
-
-
-    };
+    }; // end class PPABlend
 
 
 
@@ -710,35 +727,6 @@
 
     private:
       ppa_srm_rotation_angle_t output_rotation = PPA_SRM_ROTATION_ANGLE_0;
-      bool output_mirror_x = false;
-      bool output_mirror_y = false;
-
-      ppa_srm_rotation_angle_t getRotationFromAngle(float angle)
-      {
-        int rotation = fmod(angle, 360.0) / 90; // only 4 angles supported
-        switch(rotation)
-        {
-          case 0: return PPA_SRM_ROTATION_ANGLE_0;
-          case 1: return PPA_SRM_ROTATION_ANGLE_90;
-          case 2: return PPA_SRM_ROTATION_ANGLE_180;
-          case 3: return PPA_SRM_ROTATION_ANGLE_270;
-        }
-        return PPA_SRM_ROTATION_ANGLE_0;
-      }
-
-      float getAngleFromRotation(ppa_srm_rotation_angle_t rotation)
-      {
-        switch(rotation)
-        {
-          case PPA_SRM_ROTATION_ANGLE_0  : return 0  ;
-          case PPA_SRM_ROTATION_ANGLE_90 : return 90 ;
-          case PPA_SRM_ROTATION_ANGLE_180: return 180;
-          case PPA_SRM_ROTATION_ANGLE_270: return 270;
-        }
-        return 0;
-      }
-
-
       ppa_srm_oper_config_t oper_config = ppa_srm_oper_config_t();
 
     public:
@@ -754,8 +742,8 @@
         if(!inited)
           return;
 
-        // NOTE: ppa rotation values are counter-clockwise
-        output_rotation = getRotationFromAngle( 360-(outputGFX->getRotation()%4)*90 );
+        // NOTE: ppa rotation values are counter-clockwise while LGFX rotation values are clockwise
+        output_rotation = ppa_srm_get_rotation_from_angle( 360-(outputGFX->getRotation()%4)*90 );
 
         enabled = true;
       }
@@ -775,8 +763,8 @@
         if(!inited)
           return false;
 
-        if( sizeof(T) !=2 ) {
-          ESP_LOGE(SRM_TAG, "Only 16bits colors supported");
+        if( sizeof(T) <2 ) {
+          ESP_LOGE(SRM_TAG, "Only 16/24/32bits colors supported");
           return false;
         }
         if(!input_buffer) {
@@ -791,39 +779,25 @@
           return false;
         }
 
-        auto input_rotation  = getRotationFromAngle(rotation*90);
-        auto output_angle    = getAngleFromRotation(output_rotation) + getAngleFromRotation(input_rotation);
-        auto offset_rotation = getRotationFromAngle(output_angle);
+        auto input_rotation  = ppa_srm_get_rotation_from_angle(rotation*90);
+        auto output_angle    = ppa_srm_get_angle_from_rotation(output_rotation) + ppa_srm_get_angle_from_rotation(input_rotation);
+        auto offset_rotation = ppa_srm_get_rotation_from_angle(output_angle);
+
+        ppa_in_pic_blk_config_t in_cfg;
+        clipRect_t clipRectIn = {(int32_t)src_x, (int32_t)src_y, (int32_t)(src_w-src_x), (int32_t)(src_h-src_y)};
+        if( !ppa_cfg_block_in(&in_cfg, (void*)input_buffer, src_w, src_h, clipRectIn, sizeof(T)*8) )
+          return false;
+
+        ppa_out_pic_blk_config_t out_cfg;
+        clipRect_t clipRectOut = {(int32_t)dst_x, (int32_t)dst_y, (int32_t)output_w, (int32_t)output_h };
+        if( !ppa_cfg_block_out(&out_cfg, output_buffer, output_w * output_h * output_bytes_per_pixel, clipRectOut, output_bytes_per_pixel*8) )
+          return false;
 
         oper_config =
         {
-          .in =
-          {
-            .buffer         = (const void*)input_buffer,
-            .pic_w          = src_w,
-            .pic_h          = src_h,
-            .block_w        = src_w-src_x,
-            .block_h        = src_h-src_y,
-            .block_offset_x = src_x,
-            .block_offset_y = src_y,
-            .srm_cm         = ppa_srm_color_mode( sizeof(T)*8 ), // PPA_SRM_COLOR_MODE_RGB565,
-            .yuv_range      = ppa_color_range_t(),
-            .yuv_std        = ppa_color_conv_std_rgb_yuv_t()
-          },
-          .out =
-          {
-            .buffer         = output_buffer,
-            .buffer_size    = output_w * output_h * output_bytes_per_pixel,
-            // NOTE: axis for pic_* and block_offset_* will be inverted when output rotation is odd
-            .pic_w          = output_w,
-            .pic_h          = output_h,
-            .block_offset_x = dst_x,
-            .block_offset_y = dst_y,
-            .srm_cm         = ppa_srm_color_mode( output_bytes_per_pixel*8 ), // PPA_SRM_COLOR_MODE_RGB565,
-            .yuv_range      = ppa_color_range_t(),
-            .yuv_std        = ppa_color_conv_std_rgb_yuv_t()
-          },
-          .rotation_angle    = offset_rotation, // rotation==0 ? output_rotation : getRotationFromAngle(rotation*90),
+          .in                = in_cfg,
+          .out               = out_cfg,
+          .rotation_angle    = offset_rotation, // rotation==0 ? output_rotation : ppa_srm_get_rotation_from_angle(rotation*90),
           .scale_x           = scale_x,
           .scale_y           = scale_y,
           .mirror_x          = mirror_x,
@@ -892,9 +866,7 @@
           return false;
         }
 
-        // apply ppa offset rotation/direction
-        //uint8_t rotation = (4-input->getRotation())%4;
-        // not that rotation is translated, unapply lgfx rotation
+        // don't translate rotation twice
         if( input->getRotation()%2 == 1 )
           std::swap(src_w, src_h);
 
@@ -911,7 +883,7 @@
         return false;
       }
 
-    };
+    }; // end class PPASrm
 
   }
 
