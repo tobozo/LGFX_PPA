@@ -23,9 +23,12 @@ void setup()
   ppa_bgsprite.setColorDepth(24);
 
   // fg, bg and destination must have the same size
-  ppa_dstsprite.createSprite(240, 240);
-  ppa_fgsprite.createSprite(240, 240);
-  ppa_bgsprite.createSprite(240, 240);
+  if( !ppa_dstsprite.createSprite(240, 240)
+   || !ppa_fgsprite.createSprite(240, 240)
+   || !ppa_bgsprite.createSprite(240, 240) ) {
+    Serial.println("Failed to create ppa sprite, halting");
+    while(1);
+  }
 
   ppa_fgsprite.fillGradientRect(4, 8, ppa_fgsprite.width()-8, ppa_fgsprite.height()-16, 0xff0080u, 0x00ff80u, lgfx::RADIAL);
   ppa_fgsprite.setFont(&FreeMonoBold24pt7b);

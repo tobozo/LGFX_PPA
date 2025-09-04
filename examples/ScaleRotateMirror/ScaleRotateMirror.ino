@@ -54,8 +54,16 @@ void setup()
 
   // reset rotation
   ppa_sprite.setRotation(0);
-  ppa_srm->pushSRM(&ppa_sprite, 0,          boxHeight, 1.0, 1.0, /*mirror_x*/true, /*mirror_y*/false);
-  ppa_srm->pushSRM(&ppa_sprite, boxWidth,   boxHeight, 1.0, 1.0, /*mirror_x*/false, /*mirror_y*/true);
+  ppa_srm->setMirror(true, false);
+  ppa_srm->pushSRM(&ppa_sprite, 0,          boxHeight, 1.0, 1.0);
+
+  ppa_srm->setMirror(false, true);
+  ppa_srm->pushSRM(&ppa_sprite, boxWidth,   boxHeight, 1.0, 1.0);
+
+  // reset mirror
+  ppa_srm->setMirror(false, false);
+
+
 
 }
 
