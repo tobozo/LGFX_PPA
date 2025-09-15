@@ -1,0 +1,24 @@
+{
+  "name": "LGFX_PPA",
+  "description": "Pixel-Processing Accelerator (PPA) utilities for LovyanGFX/M5GFX with ESP32P4. This library provides a M5GFX/LovyanGFX layer for PPA, the pixel-processing accelerator module shipped with ESP32-P4 for fast image rotation, scaling, mirroring, and blending.",
+  "keywords": "lcd,tft,gfx,lgfx,m5gfx,m5unified,esp32p4,m5stack,m5tab5,m5stack-tab5",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "tobozo",
+      "url": "https://github.com/tobozo",
+      "maintainer": true
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tobozo/LGFX_PPA.git"
+  },
+  "version": "0.2.1",
+  "frameworks": ["arduino", "espidf", "*"],
+  "platforms": ["espressif32"],
+  "headers": "LGFX_PPA.hpp",
+  "build": {
+    "libArchive": false
+  }
+}

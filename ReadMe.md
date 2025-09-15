@@ -13,6 +13,12 @@ This library provides a M5GFX/LovyanGFX layer for PPA, the pixel-processing acce
 
 See examples folder.
 
+
+### Developer notes
+
+`PPA_Sprite` inherits from `LGFX_Sprite`, however the buffer is aligned specially for ppa operation, and the bit depth is limited to 16-24-32 bits colors.
+
+
 ### Known bugs
 
 - ppa operations trigger screen flashes with arduino-esp32 v3.3.0 => downgrade to arduino-esp32 v3.2.1

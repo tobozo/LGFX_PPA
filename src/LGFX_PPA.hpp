@@ -7,7 +7,6 @@
 \*/
 #pragma once
 
-
 #if __has_include(<M5GFX.h>) || __has_include(<M5Unified.hpp>)
   #include <M5GFX.h>
   #include <lgfx/v1/platforms/esp32p4/Panel_DSI.hpp>
@@ -32,6 +31,7 @@
     #include "esp_heap_caps.h"
     #include "esp_cache.h"
     #include "esp_private/esp_cache_private.h"
+    #include "esp_log.h"
 
     // some macros grabbed from LVGL
 
