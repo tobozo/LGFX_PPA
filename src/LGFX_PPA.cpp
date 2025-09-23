@@ -358,7 +358,6 @@
     bool PPASrm::pushImageSRM(
       uint32_t dst_x, uint32_t dst_y,
       uint32_t src_x, uint32_t src_y,
-      uint8_t rotation,
       float scale_x, float scale_y,
       uint32_t src_w, uint32_t src_h,
       void* input_buffer, uint8_t bitDepth
@@ -376,7 +375,7 @@
         return false;
       }
 
-      if(  src_w==0 || src_h==0 || src_w<=src_x || src_h<=src_y ) {
+      if( src_w==0 || src_h==0 || src_w<=src_x || src_h<=src_y ) {
         ESP_LOGE(SRM_TAG, "Bad dimensions");
         enabled = false;
         return false;
@@ -391,7 +390,6 @@
         return false;
 
       setScale(scale_x, scale_y);
-      setRotation(rotation);
       setAlpha(0xff);
 
       if( output_rotation%2==1 ) {

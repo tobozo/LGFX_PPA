@@ -112,6 +112,40 @@
     struct clipRect_t { int32_t x; int32_t y; int32_t w; int32_t h; };
 
 
+    template <typename GFX>
+    bool getBuffer(GFX* gfx, void* &input_buffer, uint8_t &bitDepth)
+    {
+      if( !gfx )
+        return false;
+
+      if( std::is_same<GFX, GFX_BASE>::value ) {
+        auto base = (GFX_BASE*)gfx;
+        uint8_t _bitDepth = base->getColorDepth() & 0xff;
+        if( bitDepth < 16 ) {
+          ESP_LOGE(PPA_TAG, "Unsupported Panel bit depth: %d", _bitDepth );
+          return false;
+        }
+        bitDepth = _bitDepth;
+        input_buffer = ((Panel_DSI*)base->getPanel())->config_detail().buffer;
+        ESP_LOGI(PPA_TAG, "Panel bit depth: %d", _bitDepth );
+      } else if( std::is_same<GFX, LGFX_Sprite>::value || std::is_same<GFX, PPA_Sprite>::value  ) {
+        auto sprite = (LGFX_Sprite*)gfx;
+        uint8_t _bitDepth = sprite->getColorDepth();
+        if( bitDepth < 16 ) {
+          ESP_LOGE(PPA_TAG, "Unsupported Sprite bit depth: %d", _bitDepth );
+          return false;
+        }
+        bitDepth = _bitDepth;
+        input_buffer = sprite->getBuffer();
+      } else {
+        ESP_LOGE(PPA_TAG, "Unsupported GFX type: %s, accepted types are: LovyanGFX*, M5GFX*, LGFX_Sprite*, PPA_Sprite*", TYPE_NAME<GFX>() );
+        return false;
+      }
+
+      return true;
+    }
+
+
     // ---------------------------------------------------------------------------------------------
 
 
@@ -251,19 +285,10 @@
         void *buf;
         uint8_t bitDepth = 16;
 
-        if( std::is_same<GFX, GFX_BASE>::value ) {
-          buf = ((Panel_DSI*)outputGFX->getPanel())->config_detail().buffer; // assuming 16bpp
-        } else if( std::is_same<GFX, LGFX_Sprite>::value || std::is_same<GFX, PPA_Sprite>::value  ) {
-          buf = ((LGFX_Sprite*)gfx)->getBuffer();
-          bitDepth = ((LGFX_Sprite*)gfx)->getColorDepth();
-          if( bitDepth < 16 ) {
-            ESP_LOGE(PPA_TAG, "Unsupported input bit depth: %d", bitDepth );
-            return false;
-          }
-        } else {
-          ESP_LOGE(PPA_TAG, "Unsupported gfx type: %s", TYPE_NAME<GFX>() );
+        if( !getBuffer(gfx, buf, bitDepth) )
           return false;
-        }
+
+        ESP_LOGV(PPA_TAG, "input block is %s", TYPE_NAME<GFX>() );
 
         clipRect_t clipRect = {0,0,0,0};
         gfx->getClipRect(&clipRect.x, &clipRect.y, &clipRect.w, &clipRect.h);
@@ -278,21 +303,13 @@
         if(!cfg)
           return false;
         uint8_t bitDepth = 16;
-        if( std::is_same<GFX, GFX_BASE>::value ) {
-          output_buffer = ((Panel_DSI*)outputGFX->getPanel())->config_detail().buffer;
-          output_bytes_per_pixel = 2; // panelDSI->getColorDepth() returns a weird value, so 16bits colors it is...
-        } else if( std::is_same<GFX, LGFX_Sprite>::value || std::is_same<GFX, PPA_Sprite>::value  ) {
-          bitDepth = outputGFX->getColorDepth();
-          if( bitDepth < 16 ) {
-            ESP_LOGE(PPA_TAG, "Unsupported bit depth: %d", bitDepth );
-            return false;
-          }
-          output_bytes_per_pixel = bitDepth/8;
-          output_buffer = ((LGFX_Sprite*)outputGFX)->getBuffer();
-        } else {
-          ESP_LOGE(PPA_TAG, "Unsupported GFX type: %s, accepted types are: LovyanGFX*, M5GFX*, LGFX_Sprite*, PPA_Sprite*", TYPE_NAME<GFX>() );
+
+        if( !getBuffer((GFX*)outputGFX, output_buffer, bitDepth) )
           return false;
-        }
+
+        ESP_LOGV(PPA_TAG, "output block is %s", TYPE_NAME<GFX>() );
+
+        output_bytes_per_pixel = bitDepth/8;
 
         clipRect_t clipRect = {0,0,0,0};
         outputGFX->getClipRect(&clipRect.x, &clipRect.y, &clipRect.w, &clipRect.h);
@@ -504,12 +521,13 @@
       void setRotation( uint8_t rotation );
       void setAlpha(uint8_t alpha);
 
-      bool pushImageSRM(uint32_t dst_x, uint32_t dst_y, uint32_t src_x, uint32_t src_y, uint8_t rot, float zoomx, float zoomy, uint32_t src_w, uint32_t src_h, void* buf, uint8_t bitDepth);
+      bool pushImageSRM(uint32_t dst_x, uint32_t dst_y, uint32_t src_x, uint32_t src_y, float zoomx, float zoomy, uint32_t src_w, uint32_t src_h, void* buf, uint8_t bitDepth);
 
       template <typename T>
       bool pushImageSRM(uint32_t dst_x, uint32_t dst_y, uint32_t src_x, uint32_t src_y, uint8_t rot, float zoomx, float zoomy, uint32_t src_w, uint32_t src_h, const T* buf )
       {
-        return pushImageSRM(dst_x, dst_y, src_x, src_y, rot, zoomx, zoomy, src_w, src_h, (void*)buf, sizeof(T)*8);
+        setRotation(rot);
+        return pushImageSRM(dst_x, dst_y, src_x, src_y, zoomx, zoomy, src_w, src_h, (void*)buf, sizeof(T)*8);
       }
 
       template <typename GFX>
@@ -518,22 +536,8 @@
         void* input_buffer;
         uint8_t bitDepth = 16;
 
-        if( std::is_same<GFX, GFX_BASE>::value ) {
-          auto base = (GFX_BASE*)input;
-          auto panelDSI = (Panel_DSI*)base->getPanel();
-          input_buffer = panelDSI->config_detail().buffer;
-        } else if( std::is_same<GFX, LGFX_Sprite>::value || std::is_same<GFX, PPA_Sprite>::value  ) {
-          auto sprite = (LGFX_Sprite*)input;
-          if( sprite->getColorDepth() < 16 ) {
-            ESP_LOGE(SRM_TAG, "Unsupported bit depth: %d", sprite->getColorDepth() );
-            return false;
-          }
-          bitDepth = sprite->getColorDepth();
-          input_buffer = sprite->getBuffer();
-        } else {
-          ESP_LOGE(SRM_TAG, "Unsupported GFX type: %s, accepted types are: LovyanGFX*, M5GFX*, LGFX_Sprite*, PPA_Sprite*", TYPE_NAME<GFX>() );
+        if( ! getBuffer(input, input_buffer, bitDepth) )
           return false;
-        }
 
         int32_t src_x, src_y, src_w, src_h;
         input->getClipRect(&src_x, &src_y, &src_w, &src_h); // NOTE: rotation already applied
@@ -543,13 +547,7 @@
           return false;
         }
 
-        auto input_rotation = input->getRotation();
-
-        // don't translate rotation twice
-        if( input_rotation%2 == 1 )
-          std::swap(src_w, src_h);
-
-        return pushImageSRM(dst_x, dst_y, src_x, src_y, input_rotation, scale_x, scale_y, src_w, src_h, input_buffer, bitDepth);
+        return pushImageSRM(dst_x, dst_y, src_x, src_y, scale_x, scale_y, src_w, src_h, input_buffer, bitDepth);
       }
 
     }; // end class PPASrm
