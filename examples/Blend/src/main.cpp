@@ -13,7 +13,6 @@ void setup()
 {
 
   M5.begin();
-  tft.setRotation(1); // landscape mode
 
   Serial.println("Hello PPA - Blend example");
 

@@ -38,22 +38,22 @@ void setup()
 
   // 1) test pushSRM() rotation only
 
-  ppa_sprite.setRotation(0);
+  ppa_srm->setRotation(0);
   ppa_srm->pushSRM(&ppa_sprite, 0, 0);
 
-  ppa_sprite.setRotation(2);
+  ppa_srm->setRotation(2);
   ppa_srm->pushSRM(&ppa_sprite, boxWidth, 0);
 
-  ppa_sprite.setRotation(1);
+  ppa_srm->setRotation(1);
   ppa_srm->pushSRM(&ppa_sprite, boxWidth*2, 0);
 
-  ppa_sprite.setRotation(3);
+  ppa_srm->setRotation(3);
   ppa_srm->pushSRM(&ppa_sprite, boxWidth*2+boxHeight, 0);
 
   // 2) test pushSRM() mirror only
 
   // reset rotation
-  ppa_sprite.setRotation(0);
+  ppa_srm->setRotation(0);
   ppa_srm->setMirror(true, false);
   ppa_srm->pushSRM(&ppa_sprite, 0,          boxHeight, 1.0, 1.0);
 
