@@ -338,6 +338,7 @@
 
       ppa_fill_oper_config_t config() { return oper_config; }
       void config(ppa_fill_oper_config_t cfg) { oper_config=cfg; }
+      ppa_fill_oper_config_t *configPtr() { return &oper_config; }
 
       template <typename GFX>
       PPAFill(GFX* out, bool async = false, bool use_semaphore = false)
@@ -383,6 +384,7 @@
 
       ppa_blend_oper_config_t config() { return oper_config; }
       void config(ppa_blend_oper_config_t cfg) { oper_config=cfg; }
+      ppa_blend_oper_config_t *configPtr() { return &oper_config; }
 
       template <typename GFX>
       PPABlend(GFX* out, bool async = true, bool use_semaphore = false)
@@ -501,6 +503,7 @@
 
       ppa_srm_oper_config_t config() { return oper_config; }
       void config(ppa_srm_oper_config_t cfg) { oper_config=cfg; }
+      ppa_srm_oper_config_t *configPtr() { return &oper_config; }
 
       template <typename GFX>
       PPASrm(GFX* out, bool async = true, bool use_semaphore = false)
