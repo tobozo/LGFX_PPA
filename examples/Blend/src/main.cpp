@@ -1,8 +1,18 @@
 
-#include <M5Unified.hpp>
-#include <LGFX_PPA.hpp>
+// #include <M5Unified.hpp>
+// #include <LGFX_PPA.hpp>
+//
+// #define tft M5.Display
 
-#define tft M5.Display
+#include <LovyanGFX.hpp>
+#include <LGFX_PPA.hpp>
+//#include <lgfx_user/LGFX_3.5_RPI_LCD_A.hpp>
+//LGFX_RPI_LDC35A tft;
+
+#include <lgfx_user/M5Tab5.hpp>
+M5Tab5 tft;
+
+
 
 lgfx::PPA_Sprite ppa_fgsprite;
 lgfx::PPA_Sprite ppa_bgsprite;
@@ -12,7 +22,8 @@ lgfx::PPABlend *ppa_blend;
 void setup()
 {
 
-  M5.begin();
+  //M5.begin();
+  tft.init();
 
   Serial.println("Hello PPA - Blend example");
 
@@ -30,14 +41,14 @@ void setup()
   }
 
   ppa_fgsprite.fillGradientRect(4, 8, ppa_fgsprite.width()-8, ppa_fgsprite.height()-16, 0xff0080u, 0x00ff80u, lgfx::RADIAL);
-  ppa_fgsprite.setFont(&FreeMonoBold24pt7b);
+  ppa_fgsprite.setFont(&lgfx::fonts::FreeMonoBold24pt7b);
   ppa_fgsprite.setTextSize(4);
   ppa_fgsprite.setTextColor(0x000000u);
   ppa_fgsprite.setTextDatum(MC_DATUM);
   ppa_fgsprite.drawString("fg", ppa_fgsprite.width()/2, ppa_fgsprite.height()/2);
 
   ppa_bgsprite.fillGradientRect(4, 8, ppa_bgsprite.width()-8, ppa_bgsprite.height()-16, 0x00ffffu, 0x800080u, lgfx::RADIAL);
-  ppa_bgsprite.setFont(&FreeMonoBold24pt7b);
+  ppa_bgsprite.setFont(&lgfx::fonts::FreeMonoBold24pt7b);
   ppa_bgsprite.setTextSize(4);
   ppa_bgsprite.setTextColor(0xffffffu);
   ppa_bgsprite.setTextDatum(MC_DATUM);

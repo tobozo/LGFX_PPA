@@ -1,28 +1,35 @@
 
-#include <M5Unified.hpp>
+// #include <M5Unified.hpp>
+// #include <LGFX_PPA.hpp>
+//
+// #define tft M5.Display
+
+#include <LovyanGFX.hpp>
 #include <LGFX_PPA.hpp>
+//#include <lgfx_user/LGFX_3.5_RPI_LCD_A.hpp>
+//LGFX_RPI_LDC35A tft;
+#include <lgfx_user/M5Tab5.hpp>
+M5Tab5 tft;
 
-#define tft M5.Display
+PPA_Sprite sprite_out;
+PPA_Sprite sprite_bg;
 
-lgfx::PPA_Sprite sprite_out;
-lgfx::PPA_Sprite sprite_bg;
-
-lgfx::PPAFill *ppa_fill;
-lgfx::PPABlend *ppa_blend;
-lgfx::PPASrm *ppa_srm;
+PPAFill *ppa_fill;
+PPABlend *ppa_blend;
+PPASrm *ppa_srm;
 
 
-float zoomx=8, zoomy=8;
+float zoomx=4, zoomy=4;
 float w, h;
 
 void setup()
 {
 
-  M5.begin();
+  //M5.begin();
+  tft.init();
 
   w = tft.width()/zoomx;
   h = tft.height()/zoomy;
-
 
   Serial.println("Hello PPA - Blend/Fill/Scale example");
 
@@ -35,15 +42,15 @@ void setup()
     while(1);
   }
 
-  ppa_fill = new lgfx::PPAFill(&sprite_bg, false);
+  ppa_fill = new PPAFill(&sprite_bg, false);
 
-  ppa_blend = new lgfx::PPABlend(&sprite_out, false);
+  ppa_blend = new PPABlend(&sprite_out, false);
   ppa_blend->setLayers(&sprite_out, &sprite_bg); // NOTE: blend output is also the foreground
   ppa_blend->setFGColorKey(false);
   ppa_blend->setFGAlpha(0.8*0xff);
   ppa_blend->setBGAlpha(0.2*0xff);
 
-  ppa_srm = new lgfx::PPASrm(&tft, false);
+  ppa_srm = new PPASrm(&tft, false);
   ppa_srm->setByteSwap(false);
 
 }

@@ -4,8 +4,8 @@
 
 #define tft M5.Display
 
-lgfx::PPA_Sprite ppa_sprite;
-lgfx::PPASrm *ppa_srm;
+PPA_Sprite ppa_sprite;
+PPASrm *ppa_srm;
 
 uint32_t src_x=0, src_y=0;
 float rotation=0; // only multiples of 90 e.g. 0/90/180/270/360/etc...
@@ -34,7 +34,7 @@ void setup()
   src_w = ppa_sprite.width();
   src_h = ppa_sprite.height();
 
-  ppa_srm = new lgfx::PPASrm(&tft, false);
+  ppa_srm = new PPASrm(&tft, false);
 
   // 1) test pushSRM() rotation only
 

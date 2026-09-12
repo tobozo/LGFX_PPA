@@ -4,8 +4,8 @@
 
 #define tft M5.Display
 
-lgfx::PPA_Sprite ppa_sprite;
-lgfx::PPAFill *ppa_fill;
+PPA_Sprite ppa_sprite;
+PPAFill *ppa_fill;
 
 
 void setup()
@@ -15,7 +15,7 @@ void setup()
 
   Serial.println("Hello PPA - Fill example");
 
-  ppa_fill = new lgfx::PPAFill(&tft);
+  ppa_fill = new PPAFill(&tft);
 
   ppa_fill->fillRect(0, 0, tft.width(), tft.height(), 0xffffffu);
 
