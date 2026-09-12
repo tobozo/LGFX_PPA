@@ -16,7 +16,7 @@
   #include <LovyanGFX.hpp>
   #include <lgfx/v1/platforms/esp32p4/Panel_DSI.hpp>
   using lgfx::Panel_DSI;
-  #define GFX_BASE LovyanGFX
+  #define GFX_BASE LGFX_Device
 #else
   #error "Please include M5GFX.h, M5Unified.hpp or LovyanGFX.hpp before including this file"
 #endif
@@ -113,20 +113,21 @@
 
 
     template <typename GFX>
-    bool getBuffer(GFX* gfx, void* &input_buffer, uint8_t &bitDepth)
+    bool getBuffer(GFX* gfx, void* &dst_buffer, uint8_t &bitDepth)
     {
       if( !gfx )
         return false;
 
-      if( std::is_same<GFX, GFX_BASE>::value ) {
+      if( std::is_same<GFX, GFX_BASE>::value || std::is_convertible<GFX, GFX_BASE>::value) {
         auto base = (GFX_BASE*)gfx;
+
         uint8_t _bitDepth = base->getColorDepth() & 0xff;
         if( bitDepth < 16 ) {
           ESP_LOGE(PPA_TAG, "Unsupported Panel bit depth: %d", _bitDepth );
           return false;
         }
         bitDepth = _bitDepth;
-        input_buffer = ((Panel_DSI*)base->getPanel())->config_detail().buffer;
+        dst_buffer = ((Panel_DSI*)base->getPanel())->config_detail().buffer;
         ESP_LOGI(PPA_TAG, "Panel bit depth: %d", _bitDepth );
       } else if( std::is_same<GFX, LGFX_Sprite>::value || std::is_same<GFX, PPA_Sprite>::value  ) {
         auto sprite = (LGFX_Sprite*)gfx;
@@ -136,7 +137,7 @@
           return false;
         }
         bitDepth = _bitDepth;
-        input_buffer = sprite->getBuffer();
+        dst_buffer = sprite->getBuffer();
       } else {
         ESP_LOGE(PPA_TAG, "Unsupported GFX type: %s, accepted types are: LovyanGFX*, M5GFX*, LGFX_Sprite*, PPA_Sprite*", TYPE_NAME<GFX>() );
         return false;
@@ -215,6 +216,7 @@
 
         ppa_out_pic_blk_config_t out_cfg;
         if( ! config_block_out<GFX>(&out_cfg) ) {
+          ESP_LOGE(PPA_TAG, "Failed to set config block out");
           return;
         }
 
