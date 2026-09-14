@@ -7,24 +7,54 @@
 \*/
 #pragma once
 
-#if __has_include(<M5GFX.h>) || __has_include(<M5Unified.hpp>)
-  #include <M5GFX.h>
-  #include <lgfx/v1/platforms/esp32p4/Panel_DSI.hpp>
-  using m5gfx::Panel_DSI;
-  #define GFX_BASE M5GFX
-#elif __has_include(<LovyanGFX.hpp>)
-  #include <LovyanGFX.hpp>
-  #include <lgfx/v1/platforms/esp32p4/Panel_DSI.hpp>
-  using lgfx::Panel_DSI;
-  #define GFX_BASE LGFX_Device
-#else
-  #error "Please include M5GFX.h, M5Unified.hpp or LovyanGFX.hpp before including this file"
+
+#include <sdkconfig.h>
+#if defined CONFIG_IDF_TARGET_ESP32P4 || defined CONFIG_IDF_TARGET_ESP32S31
+  #define LGFX_PPA_SUPPORTED
+  #define LGFX_PPA_ALIGN_SIZE CONFIG_CACHE_L1_CACHE_LINE_SIZE
 #endif
 
-#if !defined SOC_MIPI_DSI_SUPPORTED || !defined CONFIG_IDF_TARGET_ESP32P4
-  #error "PPA is only available with ESP32P4, and this implementation depends on MIPI/DSI support"
+
+#if !defined LGFX_PPA_SUPPORTED
+
+  #error "PPA Operations are only available on ESP32P4 or ESP32S31"
+
 #else
 
+  #if __has_include(<soc/soc_caps.h>)
+    #include <soc/soc_caps.h>
+    #if SOC_MIPI_DSI_SUPPORTED
+      #define LGFX_PPA_HAS_PANEL_DSI // TODO: get rid of this macro
+    #endif
+  #endif
+
+
+  #if __has_include(<M5GFX.h>) || __has_include(<M5Unified.hpp>)
+
+    #include <M5GFX.h>
+    #include <lgfx/v1/panel/Panel_FrameBufferBase.hpp>
+    #if defined LGFX_PPA_HAS_PANEL_DSI // TODO: get rid of this block
+      #include <lgfx/v1/platforms/esp32p4/Panel_DSI.hpp>
+      using m5gfx::Panel_DSI;
+    #endif
+
+  #elif __has_include(<LovyanGFX.hpp>)
+
+    #include <LovyanGFX.hpp>
+    #include <lgfx/v1/panel/Panel_FrameBufferBase.hpp>
+    #if defined LGFX_PPA_HAS_PANEL_DSI // TODO: get rid of this block
+      #include <lgfx/v1/platforms/esp32p4/Panel_DSI.hpp>
+      using lgfx::Panel_DSI;
+    #endif
+
+  #else
+
+    #error "Please include <M5GFX.h>, <M5Unified.hpp> or <LovyanGFX.hpp> before including this file"
+
+  #endif
+
+
+  // import esp_driver_ppa
   extern "C"
   {
     #include "driver/ppa.h"
@@ -32,20 +62,6 @@
     #include "esp_cache.h"
     #include "esp_private/esp_cache_private.h"
     #include "esp_log.h"
-
-    // some macros grabbed from LVGL
-
-    #define LGFX_PPA_ALIGN_UP(x, align)  ((((x) + (align) - 1) / (align)) * (align))
-    #define LGFX_PPA_PTR_ALIGN_UP(p, align) ((void*)(((uintptr_t)(p) + (uintptr_t)((align) - 1)) & ~(uintptr_t)((align) - 1)))
-
-    #define LGFX_PPA_ALIGN_DOWN(x, align)  ((((x) - (align) - 1) / (align)) * (align))
-    #define LGFX_PPA_PTR_ALIGN_DOWN(p, align) ((void*)(((uintptr_t)(p) - (uintptr_t)((align) - 1)) & ~(uintptr_t)((align) - 1)))
-
-    #define LGFX_PPA_RESET_CACHE(d, s) esp_cache_msync( \
-          (void *)LGFX_PPA_PTR_ALIGN_DOWN(d, CONFIG_CACHE_L1_CACHE_LINE_SIZE), \
-          LGFX_PPA_ALIGN_DOWN(s, CONFIG_CACHE_L1_CACHE_LINE_SIZE), \
-          ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA \
-        );
   }
 
 
@@ -65,6 +81,14 @@
     class PPABlend;
     class PPASrm;
 
+    // this should be part of lgfx
+    struct clipRect_t { int32_t x; int32_t y; int32_t w; int32_t h; };
+
+    // Callback: LGFX_Device buffer provider
+    // Only Panel_DSI and LGFX_Sprite can provide their buffer so far, however with a few modifications,
+    // and provided the buffer is properly aligned during its allocation, Panel_AMOLED, Panel_RGB and a
+    // few other Panel_Framebuffer* based panels could easily implement it.
+    typedef std::function<bool(LGFX_Device*gfx, void* &dst_buffer)> dev_buffer_provider_t;
 
     // debug helper to compensate for typeid() being disabled by compiler
     template <typename T> const char *TYPE_NAME()
@@ -79,21 +103,28 @@
     // memory helper for ppa operations
     void* heap_alloc_ppa(size_t length, size_t*size=nullptr);
 
+    // buffer size helper for ppa operations
+    inline uint32_t lgfx_ppa_align_up(uint32_t bufsize) { return ((bufsize + LGFX_PPA_ALIGN_SIZE - 1) / LGFX_PPA_ALIGN_SIZE) * LGFX_PPA_ALIGN_SIZE; }
+
     // on_trans_done() callbacks
     bool lgfx_ppa_cb_sem_func(ppa_client_handle_t ppa_client, ppa_event_data_t *event_data, void *user_data);
     bool lgfx_ppa_cb_bool_func(ppa_client_handle_t ppa_client, ppa_event_data_t *event_data, void *user_data);
 
     // a little debug helper
     const char* ppa_operation_type_to_string( ppa_operation_t oper_type );
-    ppa_fill_color_mode_t ppa_fill_color_mode(uint8_t lgfx_color_bit_depth);
 
+    // lgfx to ppa color modes
+    ppa_fill_color_mode_t ppa_fill_color_mode(uint8_t lgfx_color_bit_depth);
     ppa_blend_color_mode_t ppa_blend_color_mode(uint8_t lgfx_color_bit_depth);
     ppa_srm_color_mode_t ppa_srm_color_mode(uint8_t lgfx_color_bit_depth);
 
+    // float to axis lossy angle rotation
     ppa_srm_rotation_angle_t ppa_srm_get_rotation_from_angle(float angle);
+
+    // axis to float angle rotation
     float ppa_srm_get_angle_from_rotation(ppa_srm_rotation_angle_t rotation);
 
-
+    // lgfx to ppa rgb888 color converter
     template<typename T>
     color_pixel_rgb888_data_t ppa_color_convert_rgb888(T c)
     {
@@ -101,6 +132,7 @@
       return {.b=ct.B8(), .g=ct.G8(), .r=ct.R8() };
     }
 
+    // lgfx to ppa argb8888 color converter
     template<typename T>
     color_pixel_argb8888_data_t ppa_color_convert_argb8888(T c)
     {
@@ -108,43 +140,69 @@
       return {.b=ct.B8(), .g=ct.G8(), .r=ct.R8(), .a=ct.A8() };
     }
 
-
-    struct clipRect_t { int32_t x; int32_t y; int32_t w; int32_t h; };
-
-
-    template <typename GFX>
-    bool getBuffer(GFX* gfx, void* &dst_buffer, uint8_t &bitDepth)
+    // LGFX_Device/LGFX_Sprite bitDepth callback provider for lgfx_ppa_get*_buffer functions
+    template <typename GFX> // GFX = LGFX_Device/LGFX_Sprite family
+    bool lgfx_ppa_get_bit_depth(LGFX_Device*gfx, uint8_t &bitDepth)
     {
-      if( !gfx )
-        return false;
-
-      if( std::is_same<GFX, GFX_BASE>::value || std::is_convertible<GFX, GFX_BASE>::value) {
-        auto base = (GFX_BASE*)gfx;
-
-        uint8_t _bitDepth = base->getColorDepth() & 0xff;
-        if( bitDepth < 16 ) {
-          ESP_LOGE(PPA_TAG, "Unsupported Panel bit depth: %d", _bitDepth );
-          return false;
-        }
-        bitDepth = _bitDepth;
-        dst_buffer = ((Panel_DSI*)base->getPanel())->config_detail().buffer;
-        ESP_LOGI(PPA_TAG, "Panel bit depth: %d", _bitDepth );
-      } else if( std::is_same<GFX, LGFX_Sprite>::value || std::is_same<GFX, PPA_Sprite>::value  ) {
-        auto sprite = (LGFX_Sprite*)gfx;
-        uint8_t _bitDepth = sprite->getColorDepth();
-        if( bitDepth < 16 ) {
-          ESP_LOGE(PPA_TAG, "Unsupported Sprite bit depth: %d", _bitDepth );
-          return false;
-        }
-        bitDepth = _bitDepth;
-        dst_buffer = sprite->getBuffer();
-      } else {
-        ESP_LOGE(PPA_TAG, "Unsupported GFX type: %s, accepted types are: LovyanGFX*, M5GFX*, LGFX_Sprite*, PPA_Sprite*", TYPE_NAME<GFX>() );
+      uint8_t _bitDepth = gfx->getColorDepth() & 0xff;
+      if( _bitDepth < 16 ) {
+        ESP_LOGE(PPA_TAG, "Unsupported bit depth: %d for type %s", _bitDepth, TYPE_NAME<GFX>() );
         return false;
       }
-
+      bitDepth = _bitDepth;
       return true;
     }
+
+    // Buffer providers
+
+    // LGFX_Device buffer callback provider via LGFX_Device::getPanel()::config_detail().buffer e.g. Panel_DSI
+    template <typename PanelConfigFB>
+    bool lgfx_ppa_get_panel_config_buffer(LGFX_Device*gfx, void* &dst_buffer)
+    {
+      static_assert( std::is_convertible<PanelConfigFB,Panel_FrameBufferBase>::value, "PanelConfigFB is not derived from Panel_FrameBufferBase" );
+      dst_buffer = ((PanelConfigFB*)gfx->getPanel())->config_detail().buffer;
+      return true;
+    }
+
+    // LGFX_Device buffer callback provider with custom panel via LGFX_Device::getPanel()::getBuffer()
+    template <typename PanelFB>
+    bool lgfx_ppa_get_panel_buffer(LGFX_Device*gfx, void* &dst_buffer)
+    {
+      static_assert( std::is_convertible<PanelFB,Panel_Device>::value, "PanelFB is not derived from Panel_Device" );
+      dst_buffer = ((PanelFB*)gfx->getPanel())->getBuffer();
+      return true;
+    }
+
+    // PPA_Sprite/LGFX_Sprite buffer callback provider via ::getBuffer()
+    template <typename FB>
+    bool lgfx_ppa_get_buffer(LGFX_Device*gfx, void* &dst_buffer)
+    {
+      static_assert( std::is_convertible<PanelFB,LGFX_Sprite>::value, "FB is not derived from LGFX_Sprite" );
+      dst_buffer = ((FB*)gfx)->getBuffer();
+      return true;
+    }
+
+    // alias the LGFX_Sprite specialised callback provider
+    inline dev_buffer_provider_t lgfx_ppa_get_sprite_buffer = lgfx_ppa_get_buffer<LGFX_Sprite>;
+
+
+    #if defined LGFX_PPA_HAS_PANEL_DSI
+
+      // LGFX_PPA needs to read/write the panel buffer, which must be properly aligned for ppa operations.
+      // See typedef dev_buffer_provider_t, the callback is set in PPABase constructor.
+      // NOTE: Panel_DSI is currently used as the default callback.
+
+      #if !defined LGFX_PPA_DEVICE_BUFFER_PROVIDER
+        inline dev_buffer_provider_t lgfx_ppa_get_panel_dsi_buffer = lgfx_ppa_get_panel_config_buffer<Panel_DSI>;
+        #define LGFX_PPA_DEVICE_BUFFER_PROVIDER lgfx_ppa_get_panel_dsi_buffer
+      #endif
+
+    #endif
+
+
+    #if !defined LGFX_PPA_DEVICE_BUFFER_PROVIDER
+      #define LGFX_PPA_DEVICE_BUFFER_PROVIDER nullptr // lgfx_ppa_get_sprite_buffer
+    #endif
 
 
     // ---------------------------------------------------------------------------------------------
@@ -182,15 +240,20 @@
       bool available();
 
       template <typename GFX>
-      PPABase(GFX* out, ppa_operation_t oper_type, bool async = true, bool use_semaphore = false)
+      PPABase(GFX* out, ppa_operation_t oper_type, bool async = true, bool use_semaphore = false, dev_buffer_provider_t getbuf = nullptr)
       : ppa_client_config({.oper_type=oper_type, .max_pending_trans_num=1, .data_burst_length=PPA_DATA_BURST_LENGTH_128}),
-        async(async), use_semaphore(use_semaphore), output_w(out->width()), output_h(out->height()), outputGFX((GFX_BASE*)out),
-        is_panel( std::is_same<GFX, GFX_BASE>::value )
+        async(async), use_semaphore(use_semaphore),
+        output_w(out->width()), output_h(out->height()), outputGFX((LGFX_Device*)out),
+        getDeviceBuffer(getbuf), is_panel( std::is_convertible<GFX, LGFX_Device>::value )
       {
         enabled = false;
 
-        if( output_w==0 || output_h==0 ) {
-          ESP_LOGE(PPA_TAG, "Bad output w/h");
+        if(!getDeviceBuffer) {
+          ESP_LOGV(PPA_TAG, "Base constructor called without cb for %s", TYPE_NAME<GFX>() );
+        }
+
+        if( output_w==0 || output_h==0 ) { // TODO: better check, ppa_operations have more constraints on output dimensions
+          ESP_LOGE(PPA_TAG, "Bad output dimensions: w = %d, h = %d", output_w, output_h);
           return;
         }
 
@@ -202,6 +265,7 @@
         if( ppa_semaphore == NULL )
           ppa_semaphore = xSemaphoreCreateBinary();
 
+        // use either a semaphore or a volatile boolean to handle (a)synchronicity
         ppa_event_cb.on_trans_done = (async && use_semaphore)? lgfx_ppa_cb_sem_func : lgfx_ppa_cb_bool_func;
 
         if( ESP_OK != ppa_register_client(&ppa_client_config, &ppa_client_handle) ) {
@@ -216,14 +280,32 @@
 
         ppa_out_pic_blk_config_t out_cfg;
         if( ! config_block_out<GFX>(&out_cfg) ) {
-          ESP_LOGE(PPA_TAG, "Failed to set config block out");
+          ESP_LOGE(PPA_TAG, "Failed to set config block out for %s", TYPE_NAME<GFX>() );
           return;
         }
 
-        inited = true;
+        base_inited = true;
       }
 
 
+      // Attach a callback to retrieve the LGFX_Device output buffer.
+      // YMMV depending on the panel.
+      inline void setDeviceBufferProvider(dev_buffer_provider_t getbuf)
+      {
+        assert(getbuf);
+        getDeviceBuffer = getbuf;
+      }
+
+      // Attach a callback to retrieve the sprite buffer.
+      // Optional, a default callback is already set for LGFX_Sprite.
+      inline void setSpriteBufferProvider(dev_buffer_provider_t getbuf)
+      {
+        assert(getbuf);
+        getSpriteBuffer = getbuf;
+      }
+
+
+      // execute ppa operation
       template <typename T>
       bool exec(T *cfg)
       {
@@ -250,17 +332,23 @@
 
     protected:
 
+      // ppa operations config
       ppa_client_config_t ppa_client_config;
       ppa_client_handle_t ppa_client_handle = nullptr;
       ppa_event_callbacks_t ppa_event_cb;
 
+      // semaphore
       volatile bool ppa_transfer_done = true;
 
-      bool inited  = false;
+      // init/available() state machine
+      bool base_inited  = false;
       bool enabled = true;
 
+      // (a)synchronicity behaviour
       const bool async;
       const bool use_semaphore;
+
+      // output properties
 
       const uint32_t output_w;
       const uint32_t output_h;
@@ -268,11 +356,15 @@
       uint8_t output_bytes_per_pixel;
 
       void* output_buffer = nullptr;
-      uint32_t output_buffer_size;// = LGFX_PPA_ALIGN_UP(output_w*output_h*output_bytes_per_pixel, CONFIG_CACHE_L1_CACHE_LINE_SIZE);
+      uint32_t output_buffer_size;
 
-      GFX_BASE* outputGFX;
+      LGFX_Device* outputGFX;
 
-      const bool is_panel;
+      // device buffer provider
+      dev_buffer_provider_t getDeviceBuffer = nullptr;
+      dev_buffer_provider_t getSpriteBuffer = lgfx_ppa_get_sprite_buffer;
+
+      const bool is_panel; // affects byte swap
 
       bool ready();
 
@@ -287,10 +379,10 @@
         void *buf;
         uint8_t bitDepth = 16;
 
-        if( !getBuffer(gfx, buf, bitDepth) )
+        if( !get_buffer(gfx, buf, bitDepth) ) {
+          ESP_LOGE(PPA_TAG, "Failed to get input buffer for %s", TYPE_NAME<GFX>() );
           return false;
-
-        ESP_LOGV(PPA_TAG, "input block is %s", TYPE_NAME<GFX>() );
+        }
 
         clipRect_t clipRect = {0,0,0,0};
         gfx->getClipRect(&clipRect.x, &clipRect.y, &clipRect.w, &clipRect.h);
@@ -298,27 +390,84 @@
         return config_block_in(cfg, buf, gfx->width(), gfx->height(), clipRect, bitDepth);
       }
 
-
       template <typename GFX>
       bool config_block_out(ppa_out_pic_blk_config_t *cfg)
       {
-        if(!cfg)
+        if(!cfg) {
+          ESP_LOGE(PPA_TAG, "No cfg<%s> provided", TYPE_NAME<GFX>() );
           return false;
+        }
         uint8_t bitDepth = 16;
 
-        if( !getBuffer((GFX*)outputGFX, output_buffer, bitDepth) )
+        if( !get_buffer((GFX*)outputGFX, output_buffer, bitDepth) ) {
+          ESP_LOGE(PPA_TAG, "Failed to get output buffer for %s", TYPE_NAME<GFX>() );
           return false;
+        }
 
-        ESP_LOGV(PPA_TAG, "output block is %s", TYPE_NAME<GFX>() );
+        if( !output_buffer ) {
+          ESP_LOGE(PPA_TAG, "invalid output buffer for %s", TYPE_NAME<GFX>() );
+          return false;
+        }
 
         output_bytes_per_pixel = bitDepth/8;
 
         clipRect_t clipRect = {0,0,0,0};
         outputGFX->getClipRect(&clipRect.x, &clipRect.y, &clipRect.w, &clipRect.h);
 
-        output_buffer_size = LGFX_PPA_ALIGN_UP(clipRect.w*clipRect.h*output_bytes_per_pixel, CONFIG_CACHE_L1_CACHE_LINE_SIZE);
+        output_buffer_size = lgfx_ppa_align_up( clipRect.w * clipRect.h * output_bytes_per_pixel);
 
         return config_block_out(cfg, output_buffer, clipRect.w*clipRect.h*output_bytes_per_pixel, clipRect, bitDepth );
+      }
+
+      // get device or sprite buffer, for reading or writing
+      template <typename GFX>
+      bool get_buffer(GFX* gfx, void* &dst_buffer, uint8_t &bitDepth)
+      {
+        if( !gfx ) {
+          ESP_LOGE(PPA_TAG, "No gfx<%s> provided", TYPE_NAME<GFX>() );
+          return false;
+        }
+
+        constexpr const bool is_valid_gfx_device  = std::is_convertible<GFX, LGFX_Device>::value;
+        constexpr const bool is_valid_gfx_sprite  = std::is_convertible<GFX, LGFX_Sprite>::value;
+        constexpr const bool is_valid_gfx         = is_valid_gfx_device || is_valid_gfx_sprite;
+
+        if(!is_valid_gfx) {
+          ESP_LOGE(PPA_TAG, "Unsupported GFX type: %s, accepted types are: LGFX_Device*, M5GFX*, LGFX_Sprite*, PPA_Sprite*", TYPE_NAME<GFX>() );
+          static_assert(is_valid_gfx, "getBuffer(): Bad gfx type");
+          return false;
+        }
+
+        if(! lgfx_ppa_get_bit_depth<GFX>((LGFX_Device*)gfx, bitDepth)) {
+          return false;
+        }
+
+        if( is_valid_gfx_device ) {
+
+          if(!getDeviceBuffer) {
+            ESP_LOGE(PPA_TAG, "No device buffer callback was set for %s", TYPE_NAME<GFX>() );
+            return false;
+          }
+
+          if(!getDeviceBuffer((LGFX_Device*)gfx, dst_buffer)) {
+            ESP_LOGE(PPA_TAG, "Failed to get device buffer for %s", TYPE_NAME<GFX>() );
+            return false;
+          }
+
+        } else if( is_valid_gfx_sprite ) { // input or output
+
+          if(!getSpriteBuffer) {
+            ESP_LOGE(PPA_TAG, "No sprite buffer callback was set for %s", TYPE_NAME<GFX>() );
+            return false;
+          }
+
+          if( !getSpriteBuffer((LGFX_Device*)gfx, dst_buffer)) {
+            return false;
+          }
+
+        }
+
+        return true;
       }
 
 
@@ -343,14 +492,20 @@
       ppa_fill_oper_config_t *configPtr() { return &oper_config; }
 
       template <typename GFX>
-      PPAFill(GFX* out, bool async = false, bool use_semaphore = false)
-      : PPABase(out, PPA_OPERATION_FILL, async, use_semaphore)
-      { enabled = true; }
+      PPAFill(GFX* out, bool async = false, bool use_semaphore = false, dev_buffer_provider_t getbuf = LGFX_PPA_DEVICE_BUFFER_PROVIDER)
+      : PPABase(out, PPA_OPERATION_FILL, async, use_semaphore, getbuf)
+      {
+        if(!base_inited) {
+          ESP_LOGE(FILL_TAG, "PPAFill can't init due to PPABase init fail");
+          return;
+        }
+        enabled = true;
+      }
 
       template <typename T>
       bool fillRect( uint32_t x, uint32_t y, uint32_t w, uint32_t h, const T& color )
       {
-        if(!inited)
+        if(!base_inited || !enabled)
           return false;
 
         clipRect_t outClipRect = { (int32_t)x, (int32_t)y, (int32_t)output_w, (int32_t)output_h };
@@ -389,9 +544,13 @@
       ppa_blend_oper_config_t *configPtr() { return &oper_config; }
 
       template <typename GFX>
-      PPABlend(GFX* out, bool async = true, bool use_semaphore = false)
-      : PPABase(out, PPA_OPERATION_BLEND, async, use_semaphore)
+      PPABlend(GFX* out, bool async = true, bool use_semaphore = false, dev_buffer_provider_t getbuf = LGFX_PPA_DEVICE_BUFFER_PROVIDER)
+      : PPABase(out, PPA_OPERATION_BLEND, async, use_semaphore, getbuf)
       {
+        if(!base_inited) {
+          ESP_LOGE(BLEND_TAG, "PPABlend can't init due to PPABase init fail");
+          return;
+        }
         enabled = true;
         resetConfig();
       }
@@ -416,6 +575,8 @@
       template <typename GFX>
       bool setFG(GFX* fg)
       {
+        if(!base_inited || !enabled)
+          return false;
         if( !config_block_in(&oper_config.in_fg, fg) )
           return false;
         setFGByteSwap( fg->getSwapBytes() );
@@ -426,6 +587,8 @@
       template <typename GFX>
       bool setBG(GFX* bg)
       {
+        if(!base_inited || !enabled)
+          return false;
         if( !config_block_in(&oper_config.in_bg, bg) )
           return false;
         setBGByteSwap( bg->getSwapBytes() );
@@ -436,6 +599,8 @@
       template <typename FG, typename BG>
       bool setLayers(FG* fg, BG* bg)
       {
+        if(!base_inited || !enabled)
+          return false;
         if( fg->width() != output_w || fg->height() != output_h || bg->width() != output_w || bg->height() != output_h ) {
           ESP_LOGE(BLEND_TAG, "fg/bg Dimensions don't match!");
           return false; // FG and BG size must match the output block size
@@ -451,6 +616,8 @@
       template <typename FG, typename BG, typename FGTransColor>
       bool pushImageBlend( FG* fg, BG* bg, FGTransColor fgtrans)
       {
+        if(!base_inited || !enabled)
+          return false;
         if( !setLayers(fg, bg) )
           return false;
         setFGColorKey(true, fgtrans,fgtrans);
@@ -464,6 +631,8 @@
       template <typename FG, typename BG, typename FGTransColor, typename BGTransColor>
       bool pushImageBlend( FG* fg, FGTransColor fgtrans, BG* bg, BGTransColor bgtrans)
       {
+        if(!base_inited || !enabled)
+          return false;
         if( !setLayers(fg, bg) )
           return false;
         setFGColorKey(true, fgtrans,fgtrans);
@@ -477,6 +646,8 @@
       template <typename FG, typename BG>
       bool pushImageBlendAlpha( FG* fg, float fg_alpha_float_val, BG* bg, float bg_alpha_float_val)
       {
+        if(!base_inited || !enabled)
+          return false;
         if( !setLayers(fg, bg) )
           return false;
         setFGColorKey(false);
@@ -508,11 +679,13 @@
       ppa_srm_oper_config_t *configPtr() { return &oper_config; }
 
       template <typename GFX>
-      PPASrm(GFX* out, bool async = true, bool use_semaphore = false)
-      : PPABase(out, PPA_OPERATION_SRM, async, use_semaphore)
+      PPASrm(GFX* out, bool async = true, bool use_semaphore = false, dev_buffer_provider_t getbuf = LGFX_PPA_DEVICE_BUFFER_PROVIDER)
+      : PPABase(out, PPA_OPERATION_SRM, async, use_semaphore, getbuf)
       {
-        if(!inited)
+        if(!base_inited) {
+          ESP_LOGE(SRM_TAG, "PPASrm can't init due to PPABase init fail");
           return;
+        }
         resetConfig();
         enabled = true;
       }
@@ -531,6 +704,8 @@
       template <typename T>
       bool pushImageSRM(uint32_t dst_x, uint32_t dst_y, uint32_t src_x, uint32_t src_y, uint8_t rot, float zoomx, float zoomy, uint32_t src_w, uint32_t src_h, const T* buf )
       {
+        if(!base_inited || !enabled)
+          return false;
         setRotation(rot);
         return pushImageSRM(dst_x, dst_y, src_x, src_y, zoomx, zoomy, src_w, src_h, (void*)buf, sizeof(T)*8);
       }
@@ -538,10 +713,12 @@
       template <typename GFX>
       bool pushSRM(GFX* input, float dst_x, float dst_y, float scale_x=1.0, float scale_y=1.0)
       {
+        if(!base_inited || !enabled)
+          return false;
         void* input_buffer;
         uint8_t bitDepth = 16;
 
-        if( ! getBuffer(input, input_buffer, bitDepth) )
+        if( ! get_buffer(input, input_buffer, bitDepth) )
           return false;
 
         int32_t src_x, src_y, src_w, src_h;
@@ -564,4 +741,4 @@
   using lgfx::PPABlend;
   using lgfx::PPAFill;
 
-#endif
+#endif // defined defined LGFX_PPA_SUPPORTED

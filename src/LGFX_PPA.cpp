@@ -7,7 +7,7 @@
 \*/
 #include "LGFX_PPA.hpp"
 
-#if defined SOC_MIPI_DSI_SUPPORTED && defined CONFIG_IDF_TARGET_ESP32P4
+#if defined LGFX_PPA_SUPPORTED
 
 
   namespace lgfx
@@ -15,7 +15,7 @@
 
 
     // ---------------------------------------------------------------------------------------------
-
+    // ppa friendly allocator, used by PPA_Sprite::createSprite() to allocate with proper alignment.
     void* heap_alloc_ppa(size_t length, size_t*size)
     {
       size_t cache_line_size;
@@ -244,10 +244,12 @@
 
     bool PPABase::config_block_in(ppa_in_pic_blk_config_t* cfg, void*buffer, uint32_t w, uint32_t h, clipRect_t clipRect, uint8_t bitDepth)
     {
-      if( !cfg || !buffer ) // malformed call
+      if( !cfg || !buffer ) { // malformed call
+        ESP_LOGE(PPA_TAG, "No cfg|buffer provided");
         return false;
+      }
       if( clipRect.x+clipRect.w>w || clipRect.y+clipRect.h>h || clipRect.w<=0 || clipRect.h<=0 || clipRect.x<0 || clipRect.y<0) {
-        ESP_LOGE(PPA_TAG, "ClipRect {%d, %d, %d, %d} is outside boundaries", clipRect.x, clipRect.y, clipRect.w, clipRect.h);
+        ESP_LOGE(PPA_TAG, "Bad ClipRect {%d, %d, %d, %d} is outside boundaries", clipRect.x, clipRect.y, clipRect.w, clipRect.h);
         return false; // clipRect must fit in buffer area
       }
 
@@ -269,10 +271,14 @@
 
     bool PPABase::config_block_out(ppa_out_pic_blk_config_t *cfg, void*buffer, uint32_t buffer_size, clipRect_t clipRect, uint8_t bitDepth)
     {
-      if( !cfg || !buffer ) // malformed call
+      if( !cfg || !buffer ) { // malformed call
+        ESP_LOGE(PPA_TAG, "No cfg|buffer provided");
         return false;
-      if( clipRect.w<=0 || clipRect.h<=0 || clipRect.x<0 || clipRect.y<0 || clipRect.x>clipRect.w-1 || clipRect.y>clipRect.h-1 )
+      }
+      if( clipRect.w<=0 || clipRect.h<=0 || clipRect.x<0 || clipRect.y<0 || clipRect.x>clipRect.w-1 || clipRect.y>clipRect.h-1 ) {
+        ESP_LOGE(PPA_TAG, "Bad cliprect x:%d, y:%d, w:%d, h:%d", clipRect.x, clipRect.y, clipRect.w, clipRect.h);
         return false;
+      }
 
       *cfg =
       {
@@ -362,15 +368,16 @@
       uint32_t src_w, uint32_t src_h,
       void* input_buffer, uint8_t bitDepth
     ) {
-      if(!inited)
+      if(!base_inited || !enabled) {
         return false;
+      }
 
       if( bitDepth<16 || bitDepth>32 ) {
         ESP_LOGE(SRM_TAG, "Only 16/24/32bits colors supported");
         return false;
       }
       if(!input_buffer) {
-        ESP_LOGE(SRM_TAG, "Buffer missing");
+        ESP_LOGE(SRM_TAG, "Input Buffer missing");
         enabled = false;
         return false;
       }
@@ -409,10 +416,8 @@
 
     bool PPABlend::pushImageBlend()
     {
-      if(!inited) {
-        ESP_LOGE(BLEND_TAG, "Can't push after a failed init");
+      if(!base_inited || !enabled)
         return false;
-      }
 
       clipRect_t outClipRect = { (int32_t)oper_config.in_bg.block_offset_x, (int32_t)oper_config.in_bg.block_offset_y, (int32_t)output_w, (int32_t)output_h };
 
@@ -507,4 +512,4 @@
 
   }; // end namespace lgfx
 
-#endif
+#endif // defined LGFX_PPA_SUPPORTED
