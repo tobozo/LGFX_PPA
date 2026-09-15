@@ -177,7 +177,7 @@
     template <typename FB>
     bool lgfx_ppa_get_buffer(LGFX_Device*gfx, void* &dst_buffer)
     {
-      static_assert( std::is_convertible<PanelFB,LGFX_Sprite>::value, "FB is not derived from LGFX_Sprite" );
+      static_assert( std::is_convertible<FB,LGFX_Sprite>::value, "FB is not derived from LGFX_Sprite" );
       dst_buffer = ((FB*)gfx)->getBuffer();
       return true;
     }
