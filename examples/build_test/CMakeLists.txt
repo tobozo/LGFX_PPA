@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16.0)
 
 # If for some insane reason you're using this project as a boilerplate, change this
-set(EXTRA_COMPONENT_DIR "$(PROJECT_PATH)/../../../..")
+set(EXTRA_COMPONENT_DIR "$(PROJECT_PATH)/../../..")
 
 if(CONFIG_LGFX_PPA_USE_GFX)
   if(CONFIG_LGFX_PPA_USE_LOVYANGFX)
