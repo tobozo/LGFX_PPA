@@ -1,6 +1,6 @@
 {
   "name": "LGFX_PPA",
-  "description": "Pixel-Processing Accelerator (PPA) utilities for LovyanGFX/M5GFX with ESP32P4. This library provides a M5GFX/LovyanGFX layer for PPA, the pixel-processing accelerator module shipped with ESP32-P4 for fast image rotation, scaling, mirroring, and blending.",
+  "description": "Pixel-Processing Accelerator (PPA) utilities for LovyanGFX/M5GFX with ESP32P4/ESP32S31. This library provides a M5GFX/LovyanGFX layer for PPA, the pixel-processing accelerator module shipped with ESP32-P4 for fast image rotation, scaling, mirroring, and blending.",
   "keywords": "lcd,tft,gfx,lgfx,m5gfx,m5unified,esp32p4,m5stack,m5tab5,m5stack-tab5",
   "license": "MIT",
   "authors": [
