@@ -30,7 +30,6 @@ on:
     - '**sdkconfig*'
     - '**IDFBuild.yml'
     - '**esp-idf-versions.php'
-  pull_request:
   workflow_dispatch:
     inputs:
       matrix_mode:
