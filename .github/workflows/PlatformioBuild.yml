@@ -1,0 +1,77 @@
+name: PlatformIOBuild
+
+# env:
+#   PROJECT_DIR: examples/Test/build_test
+
+on:
+  push:
+    paths:
+    - '**.ino'
+    - '**.cpp'
+    - '**.hpp'
+    - '**.h'
+    - '**.c'
+    - '**PlatformioBuild.yml'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.gfx-type }}:${{ matrix.sketch-dir }}@${{ matrix.pio_env }}
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+
+        pio_env:
+          - m5stack
+
+        gfx-type:
+          - lgfx
+          - m5gfx
+
+        sketch-dir:
+          - build_test
+
+        include:
+          - { pio_env: m5stack, gfx-type: lgfx, ... }
+          - { pio_env: m5stack, gfx-type: m5gfx, ... }
+
+      fail-fast: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Cache pip
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+      - name: Cache PlatformIO
+        uses: actions/cache@v5
+        with:
+          path: ~/.platformio
+          key: ${{ runner.os }}-${{ hashFiles('**/lockfiles') }}
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install PlatformIO
+        run: |
+          python -m pip install --upgrade pip
+          pip install --upgrade platformio
+
+      - name: Run PlatformIO
+
+        run: |
+          cd examples/${{ matrix.sketch-dir }}
+          pio_env=${{ matrix.pio_env }}-${{ matrix.gfx-type }}
+          pio pkg install -e $pio_env --no-save --library file://$(realpath ../../../)
+          pio run -e $pio_env

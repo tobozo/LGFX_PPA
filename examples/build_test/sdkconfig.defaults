@@ -1,0 +1,14 @@
+# Don't bother including certificates, this is just a CI compilation test
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=n
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=n
+# Don't treat warnings as errors, this will compile with unstable cores which are full of these
+CONFIG_COMPILER_DISABLE_DEFAULT_ERRORS=y
+# This particular example needs a large partition
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions_singleapp_large.csv"
+CONFIG_PARTITION_TABLE_OFFSET=0x8000
+CONFIG_PARTITION_TABLE_MD5=y
+# LGFX_PPA: default GFX library selection
+CONFIG_LGFX_PPA_USE_GFX=y
+CONFIG_LGFX_PPA_USE_LOVYANGFX=y

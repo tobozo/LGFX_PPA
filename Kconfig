@@ -1,0 +1,19 @@
+menu "LGFX_PPA: GFX library selection"
+
+    config LGFX_PPA_USE_GFX
+        bool "Use LovyanGFX/M5GFX component"
+        default y
+
+    choice LGFX_PPA_GFX
+        bool "GFX Library choice"
+        default LGFX_PPA_USE_LOVYANGFX
+
+    config LGFX_PPA_USE_LOVYANGFX
+        bool "LovyanGFX"
+
+    config LGFX_PPA_USE_M5GFX
+        bool "M5GFX"
+
+    endchoice
+
+endmenu

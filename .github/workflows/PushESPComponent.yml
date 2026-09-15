@@ -1,0 +1,34 @@
+name: Push component to ESP Component Registry
+
+on:
+  release:
+    types: [published]
+
+  workflow_dispatch:
+    inputs:
+      git_ref:
+        description: 'Git ref with the source to push to the component registry'
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+
+jobs:
+  upload_components:
+    if: github.repository == 'tobozo/LGFX_PPA'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.git_ref || github.event.pull_request.head.sha }}
+          submodules: 'recursive'
+
+      - name: Upload component to the component registry
+        uses: espressif/upload-components-ci-action@v2
+        with:
+          namespace: 'tobozo'
+          components: "lgfx_ppa: ."
+          # dry_run: true
+

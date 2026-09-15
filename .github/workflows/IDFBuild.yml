@@ -1,0 +1,101 @@
+name: IDFBuild
+
+env:
+  ESP_IDF_REPO_URL: https://github.com/espressif/esp-idf
+  PROJECT_DIR: LGFX_PPA/examples/build_test
+
+on:
+  push:
+    paths:
+    - '**.ino'
+    - '**.cpp'
+    - '**.hpp'
+    - '**.h'
+    - '**.c'
+    - '**IDFBuild.yml'
+    - '**sdkconfig.defaults'
+    - 'CMakeLists.txt'
+    - 'esp-idf-versions.php'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+
+
+  set_matrix:
+    name: Version planner ⊹
+    runs-on: ubuntu-latest
+    env:
+      max-versions: 3 # maximum core versions to test, starting at latest
+    outputs:
+      matrix: ${{steps.set-matrix.outputs.matrix}}
+      project_dir: ${{steps.set-matrix.outputs.project_dir}}
+      repo_url: ${{steps.set-matrix.outputs.repo_url}}
+
+    steps:
+    - name: Checkout LGFX_PPA scripts
+      uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+
+
+    - name: Setup matrix
+      id: set-matrix
+      run: |
+        matrix=`php scripts/esp-idf-versions.php`
+        # echo $matrix | jq # debug
+        matrix="${matrix//'%'/'%25'}" # escape percent entities
+        matrix="${matrix//$'\n'/''}"  # remove lf
+        matrix="${matrix//$'\r'/''}"  # remove cr
+        echo "matrix=${matrix}" >> $GITHUB_OUTPUT
+        echo "project_dir=${{env.PROJECT_DIR}}" >> $GITHUB_OUTPUT
+        echo "repo_url=${{env.ESP_IDF_REPO_URL}}" >> $GITHUB_OUTPUT
+
+  build:
+    name: idf ${{ matrix.esp-idf-fqbn }}
+    needs: set_matrix
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix: ${{fromJSON(needs.set_matrix.outputs.matrix)}}
+      fail-fast: false
+
+    steps:
+
+      - name: Checkout LovyanGFX
+        uses: actions/checkout@v6
+        with:
+          repository: lovyan03/LovyanGFX
+          path: LovyanGFX
+
+      - name: Checkout M5GFX
+        uses: actions/checkout@v6
+        with:
+          repository: M5Stack/M5GFX
+          path: M5GFX
+
+      - name: Checkout LGFX_PPA
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: LGFX_PPA
+
+      - name: Get/Check IDF ${{ matrix.esp-idf-fqbn }}
+        run: |
+          mkdir -p ~/esp
+          cd ~/esp
+          idf_fqbn="${{ matrix.esp-idf-fqbn }}"
+          idf_version=${idf_fqbn#*@}
+          if [ ! -d "./esp-idf/" ]; then git clone -b v$idf_version --recursive ${{ needs.set_matrix.outputs.repo_url }} esp-idf; fi
+          cd ~/esp/esp-idf
+          if [ ! -d "~/.espressif" ]; then ./install.sh; fi
+
+      - name: Build example for ${{ matrix.esp-idf-fqbn }}
+        run: |
+          source ~/esp/esp-idf/export.sh
+          idf_fqbn="${{ matrix.esp-idf-fqbn }}"
+          idf_board=${idf_fqbn%%@*}
+          cd ${{ needs.set_matrix.outputs.project_dir }}
+          idf.py set-target $idf_board
+          idf.py build
+
